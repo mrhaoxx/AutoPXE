@@ -113,6 +113,11 @@ func ScanRootfs() (list []BootableRootfs) {
 					var kernels map[string]string = make(map[string]string)
 					var initrds map[string]string = make(map[string]string)
 
+					if distro.Name() == "debian" {
+						kernels[""] = "/vmlinuz"
+						initrds[""] = "/initrd.img"
+					}
+
 					for _, boot := range boots {
 						fmt.Print("		", boot.Name())
 						switch {
@@ -125,7 +130,7 @@ func ScanRootfs() (list []BootableRootfs) {
 							}
 
 							fmt.Println(": kernel=", version)
-							kernels[version[1]] = boot.Name()
+							kernels[version[1]] = "/boot/" + boot.Name()
 						case strings.HasPrefix(boot.Name(), "initrd.img"):
 							re := regexp.MustCompile(`initrd.img(.*)`)
 							version := re.FindStringSubmatch(boot.Name())
@@ -135,7 +140,7 @@ func ScanRootfs() (list []BootableRootfs) {
 							}
 							fmt.Println(": initrd=", version)
 
-							initrds[version[1]] = boot.Name()
+							initrds[version[1]] = "/boot/" + boot.Name()
 						case strings.HasPrefix(boot.Name(), "initramfs"):
 							re := regexp.MustCompile(`initramfs(.*)\.img`)
 							version := re.FindStringSubmatch(boot.Name())
@@ -145,7 +150,7 @@ func ScanRootfs() (list []BootableRootfs) {
 							}
 							fmt.Println(": initramfs=", version)
 
-							initrds[version[1]] = boot.Name()
+							initrds[version[1]] = "/boot/" + boot.Name()
 						default:
 							fmt.Println(": ignored")
 						}
@@ -159,8 +164,8 @@ func ScanRootfs() (list []BootableRootfs) {
 
 									Title: distro.Name() + " " + version.Name() + " " + _version + " " + Title,
 
-									Kernel: "boot/" + distro.Name() + "/" + version.Name() + "/boot/" + kernel,
-									Initrd: "boot/" + distro.Name() + "/" + version.Name() + "/boot/" + initrd,
+									Kernel: "boot/" + distro.Name() + "/" + version.Name() + kernel,
+									Initrd: "boot/" + distro.Name() + "/" + version.Name() + initrd,
 
 									Distro:      distro.Name(),
 									Version:     version.Name(),
