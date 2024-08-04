@@ -1,3 +1,0 @@
-[submodule "ipxe"]
-	path = ipxe
-	url = https://github.com/ipxe/ipxe.git

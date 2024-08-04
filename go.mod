@@ -1,6 +1,6 @@
 module github.com/mrhaoxx/AutoPXE
 
-go 1.22.5
+go 1.22
 
 require github.com/pin/tftp/v3 v3.1.0
 
