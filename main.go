@@ -18,7 +18,7 @@ import (
 	"github.com/pin/tftp/v3"
 )
 
-//go:embed ipxe.efi
+//go:embed snponly.efi
 var ipxe_efi []byte
 
 //go:embed undionly.kpxe
@@ -201,13 +201,15 @@ func readHandler(filename string, rf io.ReaderFrom) error {
 	case "undionly.kpxe":
 		rf.ReadFrom(bytes.NewReader(ipxe_bios))
 		return nil
+        case "autoexec.ipxe":
+		//rf.ReadFrom(bytes.NewReader([]byte("#!ipxe\n")))
+		return nil
 	default:
 		if strings.HasPrefix(filename, "autopxe-") {
 			mac := strings.TrimPrefix(filename, "autopxe-")
 
 			rootfs := ScanRootfs()
 			script := `#!ipxe
-dhcp
 `
 
 			var def map[string]BootableRootfs = make(map[string]BootableRootfs)
@@ -241,7 +243,7 @@ dhcp
 			// Generate iPXE script
 			script += `
 set menu-timeout 15000
-set nfs-server 172.25.2.10
+set nfs-server 172.25.2.11
 
 :start
 menu iPXE boot menu for ` + mac + `
@@ -299,13 +301,13 @@ goto start
 			for _, rootfs := range rootfs {
 				script += fmt.Sprintf(`:%s
 echo Booting %s
-initrd %s
-chain %s root=/dev/nfs nfsroot=${nfs-server}:%s %s
+initrd --name initramfs %s
+chain %s initrd=initramfs root=/dev/nfs nfsroot=${nfs-server}:%s %s
 shell
 boot || goto failed
 goto start
 `, rootfs.UUID, rootfs.Distro+" "+rootfs.Version+" "+rootfs.Kversion,
-					rootfs.Initrd, rootfs.Kernel, rootfs.Rootfs, rootfs.BootOptions)
+					rootfs.Initrd, rootfs.Kernel,  rootfs.Rootfs, rootfs.BootOptions)
 			}
 
 			fmt.Println(script)
