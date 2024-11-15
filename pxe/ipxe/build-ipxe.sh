@@ -1,7 +1,7 @@
 #!/bin/bash -xe
 
 rm -rf ipxe
-proxychains git clone https://github.com/ipxe/ipxe.git
+proxychains git clone https://github.com/ipxe/ipxe.git --depth=1
 
 cd ipxe/src
 
