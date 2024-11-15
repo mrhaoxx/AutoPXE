@@ -49,3 +49,19 @@ type IPXEScript struct {
 func (s *IPXEScript) Append(str string) {
 	s.Script += str
 }
+
+func (s *IPXEScript) Set(k, v string) {
+	s.Append(fmt.Sprintf("set %s %s\n", k, v))
+}
+
+func (s *IPXEScript) Label(label string) {
+	s.Append(fmt.Sprintf(":%s\n", label))
+}
+
+func (s *IPXEScript) Goto(label string) {
+	s.Append(fmt.Sprintf("goto %s\n", label))
+}
+
+func (s *IPXEScript) Echo(str string) {
+	s.Append(fmt.Sprintf("echo %s\n", str))
+}

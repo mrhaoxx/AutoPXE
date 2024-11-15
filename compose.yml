@@ -1,0 +1,11 @@
+name: autopxe
+services:
+  autopxe:
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/config.yaml
+      - /pxe/rootfs/:/pxe/rootfs
+      
+    network_mode: host
+    image: autopxe
+    build: .

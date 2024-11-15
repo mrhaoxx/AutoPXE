@@ -9,11 +9,19 @@ import (
 	"github.com/mrhaoxx/AutoPXE/tftp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v3"
 )
 
 // readHandler is called when client starts file download from server
 
-var DEFAULT_DISTRO_VER = ""
+type Config struct {
+	Version          string            `yaml:"version"`
+	DefaultDistro    string            `yaml:"DefaultDistro"`
+	Env              map[string]string `yaml:"Env"`
+	CmdlineTemplates map[string]string `yaml:"CmdlineTemplates"`
+	HostDefaults     map[string]string `yaml:"HostDefaults"`
+	RootfsPath       string            `yaml:"RootfsPath"`
+}
 
 func main() {
 	// use nil in place of handler to disable read or write operations
@@ -23,16 +31,33 @@ func main() {
 	log.Info().Msg("Welcome to AutoPXE - A auto PXE server for clusters")
 
 	server := tftp.NewServer()
+
+	// Load configuration
+	var cfg Config
+	config, err := os.ReadFile("config.yaml")
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to read config file")
+	}
+
+	err = yaml.Unmarshal([]byte(config), &cfg)
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse config file")
+	}
+
 	pxe := pxe.Server{
-		RootfsPath:    "/pxe/rootfs/",
-		DefaultDistro: DEFAULT_DISTRO_VER,
+		RootfsPath:       cfg.RootfsPath,
+		DefaultDistro:    cfg.DefaultDistro,
+		Env:              cfg.Env,
+		CmdlineTemplates: cfg.CmdlineTemplates,
+		HostDefaults:     cfg.HostDefaults,
 	}
 	ipxe := ipxe.NewServer()
 
 	server.Handlers = append(server.Handlers, ipxe)
 	server.Handlers = append(server.Handlers, &pxe)
 
-	err := server.ListenAndServe(":69")
+	err = server.ListenAndServe(":69")
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to start TFTP server")
 	}

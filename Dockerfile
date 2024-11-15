@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.22-alpine as builder
+FROM docker.io/library/golang:1.22-alpine AS builder
 
 COPY . /go/src/github.com/mrhaoxx/AutoPXE
 

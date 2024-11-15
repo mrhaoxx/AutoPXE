@@ -15,19 +15,42 @@ type Server struct {
 	RootfsPath string
 
 	DefaultDistro string
+
+	Env map[string]string
+
+	CmdlineTemplates map[string]string
+
+	HostDefaults map[string]string
 }
 
 func (s *Server) Handle(ctx *tftp.Ctx) tftp.Ret {
 	if strings.HasPrefix(ctx.Path, "autopxe-") {
 
+		defaultd := s.DefaultDistro
+		if s.HostDefaults != nil {
+			if val, ok := s.HostDefaults[ctx.MacAddress]; ok {
+				defaultd = val
+			}
+		}
+
 		script := ipxe.IPXEScript{}
+
+		script.Append("#!ipxe\n")
+
+		if s.Env != nil {
+			for k, v := range s.Env {
+				script.Set(k, v)
+			}
+		}
 
 		oss := ScanRootfs(s.RootfsPath)
 		menu := ipxe.Menu{
-			Title:   "AutoPXE Boot Main Menu " + ctx.MacAddress + " " + ctx.IP,
+			Title:   "AutoPXE Boot Main Menu " + ctx.MacAddress + " " + ctx.IP + " ${hostname}",
 			Id:      "start",
-			Timeout: "8000",
+			Timeout: "10000",
 		}
+
+		menu.AddItem("Boot "+defaultd, defaultd, "")
 
 		for _, os := range oss {
 			menu.AddItem(os.Name, os.Name, "")
@@ -63,15 +86,16 @@ goto start
 
 		for _, val := range oss {
 			smenu := ipxe.Menu{
-				Title:   "Boot " + val.Name,
-				Id:      val.Name,
-				Timeout: "4000",
-				Cancel:  "start",
+				Title:  "Boot " + val.Name,
+				Id:     val.Name,
+				Cancel: "start",
 			}
 
 			for _, ver := range val.Versions {
 				for _, kernel := range ver.Kernels {
-					smenu.AddItem("Boot "+val.Name+"-"+ver.Version+"-"+kernel.Version, val.Name+"-"+ver.Version+"-"+kernel.Version, "")
+					for k := range s.CmdlineTemplates {
+						smenu.AddItem("Boot "+val.Name+"/"+ver.Version+"/"+kernel.Version+"/"+k, val.Name+"/"+ver.Version+"/"+kernel.Version+"/"+k, "")
+					}
 				}
 			}
 
@@ -82,10 +106,21 @@ goto start
 		for _, val := range oss {
 			for _, ver := range val.Versions {
 				for _, kernel := range ver.Kernels {
-					script.Append(":" + val.Name + "-" + ver.Version + "-" + kernel.Version + "\n")
-					script.Append("kernel boot/" + kernel.KernelPath + "\n")
-					script.Append("initrd boot/" + kernel.InitrdPath + "\n")
-					script.Append("boot\n")
+					for k, v := range s.CmdlineTemplates {
+						script.Label(val.Name + "/" + ver.Version + "/" + kernel.Version + "/" + k)
+						script.Set("rootfs-path", ver.RootfsPath)
+						script.Echo("Booting " + val.Name + "/" + ver.Version + "/" + kernel.Version + "/" + k + "\n")
+						script.Echo("Cmdline: " + v + "\n")
+						script.Append("initrd boot/" + kernel.InitrdPath + "\n")
+
+						script.Append("imgstat\n")
+
+						script.Echo("Booting in 3 seconds...")
+						script.Append("sleep 3\n")
+
+						script.Append("chain boot/" + kernel.KernelPath + " " + v + "\n")
+						script.Append("boot || goto failed\n")
+					}
 				}
 			}
 		}
