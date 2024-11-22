@@ -137,6 +137,18 @@ func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 							version := vers[1]
 							initrds[version] = path.Join(bloc, "boot", boot.Name())
 							log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", vdir).Str("distro", distro.Name()).Msg("Found initrd")
+						// initramfs-6.6.0-45.0.0.54.oe2409.x86_64.img --> initramfs 6.6.0-45.0.0.54.oe2409.x86_64
+						// seen in openEuler
+						case strings.HasPrefix(boot.Name(), "initramfs"):
+							regexp := regexp.MustCompile(`initramfs-(.*)\.img`)
+							vers := regexp.FindStringSubmatch(boot.Name())
+							if len(vers) == 0 {
+								log.Warn().Str("file", boot.Name()).Str("path", vdir).Msg("Failed to parse initramfs version")
+								continue
+							}
+							version := vers[1]
+							initrds[version] = path.Join(bloc, "boot", boot.Name())
+							log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", vdir).Str("distro", distro.Name()).Msg("Found initramfs")
 						default:
 							log.Debug().Str("file", boot.Name()).Msg("Ignoring non-kernel/initrd file")
 						}
