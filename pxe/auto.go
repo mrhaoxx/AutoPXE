@@ -28,8 +28,11 @@ func (s *Server) Handle(ctx *tftp.Ctx) tftp.Ret {
 
 		defaultd := s.DefaultDistro
 		if s.HostDefaults != nil {
-			if val, ok := s.HostDefaults[ctx.MacAddress]; ok {
-				defaultd = val
+			for k, val := range s.HostDefaults {
+				if strings.EqualFold(k, ctx.MacAddress) {
+					defaultd = val
+					break
+				}
 			}
 		}
 
