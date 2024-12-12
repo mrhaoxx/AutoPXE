@@ -51,6 +51,22 @@ func main() {
 		Env:              cfg.Env,
 		CmdlineTemplates: cfg.CmdlineTemplates,
 		HostDefaults:     cfg.HostDefaults,
+		DefaultDistroPattern: map[string][]pxe.ScannedBootFile{
+			"debian": {
+				pxe.ScannedBootFile{
+					Version:    pxe.KernelVersion{Raw: "default"},
+					KernelPath: "vmlinuz",
+					InitrdPath: "initrd.img",
+				},
+			},
+			"ubuntu": {
+				pxe.ScannedBootFile{
+					Version:    pxe.KernelVersion{Raw: "default"},
+					KernelPath: "boot/vmlinuz",
+					InitrdPath: "boot/initrd.img",
+				},
+			},
+		},
 	}
 	ipxe := ipxe.NewServer()
 

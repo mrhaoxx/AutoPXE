@@ -21,6 +21,8 @@ type Server struct {
 	CmdlineTemplates map[string]string
 
 	HostDefaults map[string]string
+
+	DefaultDistroPattern map[string][]ScannedBootFile
 }
 
 func (s *Server) Handle(ctx *tftp.Ctx) tftp.Ret {
@@ -46,7 +48,8 @@ func (s *Server) Handle(ctx *tftp.Ctx) tftp.Ret {
 			}
 		}
 
-		distros := ScanRootfs(s.RootfsPath)
+		distros := Scanner{DefaultDistroPattern: s.DefaultDistroPattern}.ScanRootfs(s.RootfsPath)
+
 		menu := ipxe.Menu{
 			Title:   "AutoPXE Boot Main Menu " + ctx.MacAddress + " " + ctx.IP + " ${hostname}",
 			Id:      "start",

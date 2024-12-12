@@ -91,10 +91,13 @@ type ScannedDistro struct {
 	Name    string
 	Release []ScannedRelease
 }
+type Scanner struct {
+	DefaultDistroPattern map[string][]ScannedBootFile
+}
 
 // ScanRootfs scans the rootfs directory for distros, releases and kernels
 // Path should be like: rootfs/{distro}/{release}/boot/{vmlinuz,initrd|initramfs}
-func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
+func (s Scanner) ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 
 	log.Debug().Msg("Scanning rootfs")
 
@@ -237,10 +240,17 @@ func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 				sort.Sort(ScannedBootFileSlice(bootFileData))
 				latest := bootFileData[len(bootFileData)-1]
 				latest.Version.Raw = "latest"
-				bootFileData = append([]ScannedBootFile{latest}, bootFileData...)
 			} else {
 				log.Warn().Str("distro", distroData.Name).Str("release", releaseData.Release).Msg("No boot files found")
 				continue
+			}
+
+			for _, v := range s.DefaultDistroPattern[distro.Name()] {
+				bootFileData = append(bootFileData, ScannedBootFile{
+					Version:    v.Version,
+					KernelPath: path.Join(bootPath, v.KernelPath),
+					InitrdPath: path.Join(bootPath, v.InitrdPath),
+				})
 			}
 
 			releaseData.BootFiles = bootFileData
