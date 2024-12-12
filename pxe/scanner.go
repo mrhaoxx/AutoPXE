@@ -173,6 +173,11 @@ func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 					continue
 				}
 
+				if bootfile.Mode()&os.ModeSymlink != 0 {
+					log.Debug().Str("link", bootfile.Name()).Msg("Ignoring symlink")
+					continue
+				}
+
 				switch {
 				case strings.HasPrefix(bootfile.Name(), "vmlinuz"):
 					// vmlinuz-5.10.0-8-amd64 --> vmlinuz 5.10.0-8-amd64
