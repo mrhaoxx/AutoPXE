@@ -240,6 +240,7 @@ func (s Scanner) ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 				sort.Sort(ScannedBootFileSlice(bootFileData))
 				latest := bootFileData[len(bootFileData)-1]
 				latest.Version.Raw = "latest"
+				bootFileData = append(bootFileData, latest)
 			} else {
 				log.Warn().Str("distro", distroData.Name).Str("release", releaseData.Release).Msg("No boot files found")
 				continue
