@@ -10,6 +10,6 @@ make bin-x86_64-efi/snponly.efi EMBED=../../embed.ipxe -j
 
 cp bin/undionly.kpxe ../../
 cp bin-x86_64-efi/snponly.efi ../../
- 
+
 cd ../..
 rm -rf ipxe

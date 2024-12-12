@@ -46,17 +46,19 @@ func (s *Server) Handle(ctx *tftp.Ctx) tftp.Ret {
 			}
 		}
 
-		oss := ScanRootfs(s.RootfsPath)
+		distros := ScanRootfs(s.RootfsPath)
 		menu := ipxe.Menu{
 			Title:   "AutoPXE Boot Main Menu " + ctx.MacAddress + " " + ctx.IP + " ${hostname}",
 			Id:      "start",
 			Timeout: "10000",
 		}
 
+		// check if the default distro is in the list
+
 		menu.AddItem("Boot "+defaultd, defaultd, "")
 
-		for _, os := range oss {
-			menu.AddItem(os.Name, os.Name, "")
+		for _, distro := range distros {
+			menu.AddItem(distro.Name, distro.Name, "")
 		}
 
 		menu.AddItem("Configure settings", "config", "")
@@ -87,17 +89,17 @@ goto start
 
 `)
 
-		for _, val := range oss {
+		for _, distro := range distros {
 			smenu := ipxe.Menu{
-				Title:  "Boot " + val.Name,
-				Id:     val.Name,
+				Title:  "Boot " + distro.Name,
+				Id:     distro.Name,
 				Cancel: "start",
 			}
 
-			for _, ver := range val.Versions {
-				for _, kernel := range ver.Kernels {
+			for _, release := range distro.Release {
+				for _, bootfile := range release.BootFiles {
 					for k := range s.CmdlineTemplates {
-						smenu.AddItem("Boot "+val.Name+"/"+ver.Version+"/"+kernel.Version+"/"+k, val.Name+"/"+ver.Version+"/"+kernel.Version+"/"+k, "")
+						smenu.AddItem("Boot "+distro.Name+"/"+release.Release+"/"+bootfile.Version.Raw+"/"+k, distro.Name+"/"+release.Release+"/"+bootfile.Version.Raw+"/"+k, "")
 					}
 				}
 			}
@@ -106,13 +108,13 @@ goto start
 			smenu.PrintTo(&script)
 		}
 
-		for _, val := range oss {
-			for _, ver := range val.Versions {
-				for _, kernel := range ver.Kernels {
+		for _, val := range distros {
+			for _, ver := range val.Release {
+				for _, kernel := range ver.BootFiles {
 					for k, v := range s.CmdlineTemplates {
-						script.Label(val.Name + "/" + ver.Version + "/" + kernel.Version + "/" + k)
+						script.Label(val.Name + "/" + ver.Release + "/" + kernel.Version.Raw + "/" + k)
 						script.Set("rootfs-path", ver.RootfsPath)
-						script.Echo("Booting " + val.Name + "/" + ver.Version + "/" + kernel.Version + "/" + k + "\n")
+						script.Echo("Booting " + val.Name + "/" + ver.Release + "/" + kernel.Version.Raw + "/" + k + "\n")
 						script.Echo("Cmdline: " + v + "\n")
 						script.Append("initrd boot/" + kernel.InitrdPath + "\n")
 
