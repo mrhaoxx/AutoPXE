@@ -4,34 +4,96 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-type ScannedKernel struct {
-	Version    string
+// KernelVersion represents a kernel version
+// format: MAJOR.MINOR.PATCH-SUFFIX
+type KernelVersion struct {
+	Numbers []int
+	Suffix  string
+	Raw     string
+}
+
+func NewKernelVersion(versionStr string) KernelVersion {
+	parts := strings.SplitN(versionStr, "-", 2)
+	numericPart := strings.Split(parts[0], ".")
+	var nums []int
+
+	for _, n := range numericPart {
+		i, err := strconv.Atoi(n)
+		if err != nil {
+			i = 0
+		}
+		nums = append(nums, i)
+	}
+
+	return KernelVersion{
+		Numbers: nums,
+		Suffix:  parts[1],
+		Raw:     versionStr,
+	}
+}
+
+func (kv KernelVersion) Compare(other KernelVersion) bool {
+	for i := 0; i < len(kv.Numbers) || i < len(other.Numbers); i++ {
+		n1, n2 := 0, 0
+		if i < len(kv.Numbers) {
+			n1 = kv.Numbers[i]
+		}
+		if i < len(other.Numbers) {
+			n2 = other.Numbers[i]
+		}
+		if n1 != n2 {
+			return n1 < n2
+		}
+	}
+
+	return kv.Suffix < other.Suffix
+}
+
+// ScannedBootFile represents a kernel with its corresponding initrd/initramfs
+type ScannedBootFile struct {
+	Version    KernelVersion
 	KernelPath string
 	InitrdPath string
 }
 
-type ScannedDistroVersion struct {
-	Version    string
-	Kernels    []ScannedKernel
+func (sbf ScannedBootFile) Compare(other ScannedBootFile) bool {
+	return sbf.Version.Compare(other.Version)
+}
+
+type ScannedBootFileSlice []ScannedBootFile
+
+func (s ScannedBootFileSlice) Len() int {
+	return len(s)
+}
+
+func (s ScannedBootFileSlice) Less(i, j int) bool {
+	return s[i].Compare(s[j])
+}
+
+func (s ScannedBootFileSlice) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+type ScannedRelease struct {
+	Release    string
+	BootFiles  []ScannedBootFile
 	RootfsPath string
 }
 
 type ScannedDistro struct {
-	Name string
-
-	Versions []ScannedDistroVersion
+	Name    string
+	Release []ScannedRelease
 }
 
-// rootfs/{distro}/{version}
-// --> /{kernel,initrd} as ""
-// --> /boot/{kernel,initrd} as options
-// initrd.img-6.1.0-25-amd64
-
+// ScanRootfs scans the rootfs directory for distros, releases and kernels
+// Path should be like: rootfs/{distro}/{release}/boot/{vmlinuz,initrd|initramfs}
 func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 
 	log.Debug().Msg("Scanning rootfs")
@@ -51,134 +113,147 @@ func ScanRootfs(rootfs_path string) (list []ScannedDistro) {
 
 	// Print the list of files
 	for _, distro := range distros {
-		if distro.IsDir() {
+		if !distro.IsDir() {
+			log.Debug().Str("file", distro.Name()).Msg("Ignoring non-directory")
+			continue
+		}
 
-			distrodata := ScannedDistro{
-				Name: distro.Name(),
+		distroPath := path.Join(rootfs_path, distro.Name())
+		distroDir, err := os.Open(distroPath)
+		if err != nil {
+			log.Err(err).Str("distro", distro.Name()).Msg("Failed to open distro dir")
+			continue
+		}
+		defer distroDir.Close()
+
+		// now we are in /rootfs/{distro}
+		distroData := ScannedDistro{
+			Name: distro.Name(),
+		}
+
+		releases, err := distroDir.Readdir(-1)
+		if err != nil {
+			log.Err(err).Str("distro", distro.Name()).Msg("Failed to read distro dir")
+			continue
+		}
+
+		for _, release := range releases {
+			if !release.IsDir() {
+				log.Debug().Str("file", release.Name()).Msg("Ignoring non-directory")
+				continue
+			}
+			releasePath := path.Join(distroPath, release.Name())
+
+			releaseData := ScannedRelease{
+				Release:    release.Name(),
+				RootfsPath: releasePath,
 			}
 
-			ddir := path.Join(rootfs_path, distro.Name())
-			distroDir, err := os.Open(ddir)
-
+			bootPath := path.Join(distro.Name(), release.Name())
+			bootDir, err := os.Open(path.Join(releasePath, "boot"))
 			if err != nil {
-				log.Err(err).Str("distro", distro.Name()).Msg("Failed to open distro dir")
+				log.Err(err).Str("version", release.Name()).Str("distro", distro.Name()).Str("path", releasePath).Msg("Failed to open boot dir")
+				continue
+			}
+			defer bootDir.Close()
+
+			// now we are in /rootfs/{distro}/{release}/boot
+			bootFiles, err := bootDir.Readdir(-1)
+			if err != nil {
+				log.Err(err).Str("version", release.Name()).Str("distro", distro.Name()).Str("path", releasePath).Msg("Failed to read boot dir")
 				continue
 			}
 
-			defer distroDir.Close()
+			var kernels map[string]string = make(map[string]string)
+			var initrds map[string]string = make(map[string]string)
 
-			versions, err := distroDir.Readdir(-1)
-
-			if err != nil {
-				log.Err(err).Str("distro", distro.Name()).Msg("Failed to read distro dir")
-				continue
-			}
-
-			for _, version := range versions {
-				if version.IsDir() { // now we are in /rootfs/{distro}/{version}
-
-					bloc := path.Join(distro.Name(), version.Name())
-
-					vdir := path.Join(ddir, version.Name())
-
-					bootdir, err := os.Open(path.Join(vdir, "boot"))
-
-					versiondata := ScannedDistroVersion{
-						Version:    version.Name(),
-						RootfsPath: vdir,
-					}
-
-					if err != nil {
-						log.Err(err).Str("version", version.Name()).Str("distro", distro.Name()).Str("path", vdir).Msg("Failed to open boot dir")
-						continue
-					}
-					defer bootdir.Close()
-
-					boots, err := bootdir.Readdir(-1)
-
-					if err != nil {
-						log.Err(err).Str("version", version.Name()).Str("distro", distro.Name()).Str("path", vdir).Msg("Failed to read boot dir")
-						continue
-					}
-
-					var kernels map[string]string = make(map[string]string)
-					var initrds map[string]string = make(map[string]string)
-
-					if distro.Name() == "debian" {
-						kernels["latest"] = path.Join(bloc, "vmlinuz")
-						initrds["latest"] = path.Join(bloc, "initrd.img")
-					}
-
-					for _, boot := range boots {
-						if boot.IsDir() {
-							log.Debug().Str("dir", boot.Name()).Msg("Ignoring directory")
-						}
-
-						// initrd.img-6.1.0-25-amd64 --> initrd 6.1.0-25-amd64
-
-						switch {
-						case strings.HasPrefix(boot.Name(), "vmlinuz"):
-							regexp := regexp.MustCompile(`vmlinuz-(.*)`)
-							vers := regexp.FindStringSubmatch(boot.Name())
-							if len(vers) == 0 {
-								log.Warn().Str("file", boot.Name()).Str("path", vdir).Msg("Failed to parse kernel version")
-								continue
-							}
-							version := vers[1]
-							kernels[version] = path.Join(bloc, "boot", boot.Name())
-							log.Info().Str("kversion", version).Str("kernel", kernels[version]).Str("path", vdir).Str("distro", distro.Name()).Msg("Found kernel")
-						case strings.HasPrefix(boot.Name(), "initrd.img"):
-							regexp := regexp.MustCompile(`initrd.img-(.*)`)
-							vers := regexp.FindStringSubmatch(boot.Name())
-							if len(vers) == 0 {
-								log.Warn().Str("file", boot.Name()).Str("path", vdir).Msg("Failed to parse initrd version")
-								continue
-							}
-							version := vers[1]
-							initrds[version] = path.Join(bloc, "boot", boot.Name())
-							log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", vdir).Str("distro", distro.Name()).Msg("Found initrd")
-						// initramfs-6.6.0-45.0.0.54.oe2409.x86_64.img --> initramfs 6.6.0-45.0.0.54.oe2409.x86_64
-						// seen in openEuler
-						case strings.HasPrefix(boot.Name(), "initramfs"):
-							regexp := regexp.MustCompile(`initramfs-(.*)\.img`)
-							vers := regexp.FindStringSubmatch(boot.Name())
-							if len(vers) == 0 {
-								log.Warn().Str("file", boot.Name()).Str("path", vdir).Msg("Failed to parse initramfs version")
-								continue
-							}
-							version := vers[1]
-							initrds[version] = path.Join(bloc, "boot", boot.Name())
-							log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", vdir).Str("distro", distro.Name()).Msg("Found initramfs")
-						default:
-							log.Debug().Str("file", boot.Name()).Msg("Ignoring non-kernel/initrd file")
-						}
-					}
-
-					kernelsdata := make([]ScannedKernel, 0, len(kernels))
-
-					for version, kernel := range kernels {
-						kernelsdata = append(kernelsdata, ScannedKernel{
-							Version:    version,
-							KernelPath: kernel,
-							InitrdPath: initrds[version],
-						})
-					}
-
-					versiondata.Kernels = kernelsdata
-
-					distrodata.Versions = append(distrodata.Versions, versiondata)
-
-				} else {
-					log.Debug().Str("file", version.Name()).Msg("Ignoring non-directory")
+			for _, bootfile := range bootFiles {
+				if bootfile.IsDir() {
+					log.Debug().Str("dir", bootfile.Name()).Msg("Ignoring directory")
+					continue
 				}
 
+				if bootfile.Mode()&os.ModeSymlink != 0 {
+					log.Debug().Str("link", bootfile.Name()).Msg("Ignoring symlink")
+					continue
+				}
+
+				switch {
+				case strings.HasPrefix(bootfile.Name(), "vmlinuz"):
+					// vmlinuz-5.10.0-8-amd64 --> vmlinuz 5.10.0-8-amd64
+					regexp := regexp.MustCompile(`vmlinuz-(.*)`)
+					vers := regexp.FindStringSubmatch(bootfile.Name())
+					if len(vers) == 0 {
+						log.Warn().Str("file", bootfile.Name()).Str("path", releasePath).Msg("Failed to parse kernel version")
+						continue
+					}
+					version := vers[1]
+					kernels[version] = path.Join(bootPath, "boot", bootfile.Name())
+					log.Info().Str("kversion", version).Str("kernel", kernels[version]).Str("path", releasePath).Str("distro", distro.Name()).Msg("Found kernel")
+				case strings.HasPrefix(bootfile.Name(), "initrd.img"):
+					// initrd.img-6.1.0-25-amd64 --> initrd 6.1.0-25-amd64
+					regexp := regexp.MustCompile(`initrd.img-(.*)`)
+					vers := regexp.FindStringSubmatch(bootfile.Name())
+					if len(vers) == 0 {
+						log.Warn().Str("file", bootfile.Name()).Str("path", releasePath).Msg("Failed to parse initrd version")
+						continue
+					}
+					version := vers[1]
+					initrds[version] = path.Join(bootPath, "boot", bootfile.Name())
+					log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", releasePath).Str("distro", distro.Name()).Msg("Found initrd")
+				case strings.HasPrefix(bootfile.Name(), "initramfs"):
+					// initramfs-6.6.0-45.0.0.54.oe2409.x86_64.img --> initramfs 6.6.0-45.0.0.54.oe2409.x86_64
+					regexp := regexp.MustCompile(`initramfs-(.*)\.img`)
+					vers := regexp.FindStringSubmatch(bootfile.Name())
+					if len(vers) == 0 {
+						log.Warn().Str("file", bootfile.Name()).Str("path", releasePath).Msg("Failed to parse initramfs version")
+						continue
+					}
+					version := vers[1]
+					initrds[version] = path.Join(bootPath, "boot", bootfile.Name())
+					log.Info().Str("iversion", version).Str("initrd", initrds[version]).Str("path", releasePath).Str("distro", distro.Name()).Msg("Found initramfs")
+				default:
+					log.Debug().Str("file", bootfile.Name()).Msg("Ignoring non-kernel/initrd file")
+				}
 			}
 
-			list = append(list, distrodata)
+			bootFileData := make([]ScannedBootFile, 0, len(kernels))
 
-		} else {
-			log.Debug().Str("file", distro.Name()).Msg("Ignoring non-directory")
+			for version, kernel := range kernels {
+				initrd, ok := initrds[version]
+				if !ok {
+					log.Warn().Str("version", version).Str("kernel", kernel).Msg("No matching initrd found for kernel, ignoring")
+					continue
+				}
+				bootFileData = append(bootFileData, ScannedBootFile{
+					Version:    NewKernelVersion(version),
+					KernelPath: kernel,
+					InitrdPath: initrd,
+				})
+			}
+
+			// duplicate a special latest version
+			if len(bootFileData) > 0 {
+				sort.Sort(ScannedBootFileSlice(bootFileData))
+				latest := bootFileData[len(bootFileData)-1]
+				latest.Version.Raw = "latest"
+				bootFileData = append([]ScannedBootFile{latest}, bootFileData...)
+			} else {
+				log.Warn().Str("distro", distroData.Name).Str("release", releaseData.Release).Msg("No boot files found")
+				continue
+			}
+
+			releaseData.BootFiles = bootFileData
+			distroData.Release = append(distroData.Release, releaseData)
 		}
+
+		if len(distroData.Release) == 0 {
+			log.Warn().Str("distro", distroData.Name).Msg("No releases found")
+			continue
+		}
+
+		list = append(list, distroData)
+
 	}
 
 	return list
